@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(start \"C:\\Users\\a\\Desktop\\mbti_project\\dodge_game.html\")",
+      "Bash(start \"C:\\Users\\a\\Desktop\\mbti_project\\index.html\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
