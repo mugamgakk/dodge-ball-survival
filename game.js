@@ -1,8 +1,27 @@
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
-const centerX = canvas.width / 2;
-const centerY = canvas.height / 2;
-const arenaRadius = 280;
+let centerX = canvas.width / 2;
+let centerY = canvas.height / 2;
+let arenaRadius = 280;
+let canvasSize = 600;
+
+function resizeCanvas() {
+    const isMobile = window.innerWidth <= 768;
+    if (isMobile) {
+        const size = Math.min(window.innerWidth - 20, window.innerHeight - 120);
+        canvasSize = size;
+        canvas.width = size;
+        canvas.height = size;
+        arenaRadius = (size / 2) - 20;
+    } else {
+        canvasSize = 600;
+        canvas.width = 600;
+        canvas.height = 600;
+        arenaRadius = 280;
+    }
+    centerX = canvas.width / 2;
+    centerY = canvas.height / 2;
+}
 
 let gameState = 'menu';
 let animationId;
@@ -42,6 +61,16 @@ const keys = {
     ArrowDown: false,
     ArrowLeft: false,
     ArrowRight: false
+};
+
+const touch = {
+    isActive: false,
+    startX: 0,
+    startY: 0,
+    currentX: 0,
+    currentY: 0,
+    targetX: 0,
+    targetY: 0
 };
 
 class Ball {
@@ -258,7 +287,6 @@ function initGame() {
         spawnBall();
     }
     
-    console.log('게임 초기화:', { playerRadius: player.radius, playerPos: { x: player.x, y: player.y }, ballsCount: balls.length });
     
     updateHUD();
 }
@@ -270,7 +298,6 @@ function spawnBall() {
     const y = centerY + Math.sin(angle) * distance;
     const newBall = new Ball(x, y, game.level);
     balls.push(newBall);
-    console.log('공 생성:', { x, y, radius: newBall.radius, ballsCount: balls.length });
 }
 
 function spawnItem() {
@@ -280,6 +307,7 @@ function spawnItem() {
 }
 
 function updatePlayer(deltaTime) {
+    // 키보드 입력 처리
     if (keys.ArrowUp) player.dy = -player.speed;
     else if (keys.ArrowDown) player.dy = player.speed;
     else player.dy = 0;
@@ -288,7 +316,24 @@ function updatePlayer(deltaTime) {
     else if (keys.ArrowRight) player.dx = player.speed;
     else player.dx = 0;
     
-    if (player.dx !== 0 && player.dy !== 0) {
+    // 터치 입력 처리
+    if (touch.isActive) {
+        const dx = touch.targetX - player.x;
+        const dy = touch.targetY - player.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance > 5) { // 5픽셀 이상 차이날 때만 이동
+            const moveSpeed = Math.min(player.speed, distance * 3); // 거리에 따라 속도 조절
+            player.dx = (dx / distance) * moveSpeed;
+            player.dy = (dy / distance) * moveSpeed;
+        } else {
+            player.dx = 0;
+            player.dy = 0;
+        }
+    }
+    
+    // 대각선 이동 시 속도 정규화
+    if (player.dx !== 0 && player.dy !== 0 && !touch.isActive) {
         const magnitude = Math.sqrt(player.dx * player.dx + player.dy * player.dy);
         player.dx = (player.dx / magnitude) * player.speed;
         player.dy = (player.dy / magnitude) * player.speed;
@@ -318,13 +363,9 @@ function checkCollisions() {
         const distance = Math.sqrt(dx * dx + dy * dy);
         const collisionDistance = player.radius + ball.radius;
         
-        console.log(`Ball ${i}: distance=${distance.toFixed(2)}, collision=${collisionDistance.toFixed(2)}, isInvincible=${game.isInvincible}`);
-        
         if (distance < collisionDistance) {
-            console.log('충돌 감지!', { health: game.health, isInvincible: game.isInvincible });
             if (!game.isInvincible) {
                 game.health--;
-                console.log('체력 감소:', game.health);
                 createParticles(player.x, player.y, '#ff0000');
                 updateHUD();
                 
@@ -334,7 +375,6 @@ function checkCollisions() {
                     game.isInvincible = true;
                     game.powerupType = 'damaged';
                     game.powerupEndTime = Date.now() + 2000;
-                    console.log('무적 모드 활성화:', { endTime: game.powerupEndTime, now: Date.now() });
                 }
             }
         }
@@ -401,18 +441,7 @@ function showPowerup(text) {
 function updatePowerups() {
     const now = Date.now();
     
-    if (game.powerupEndTime > 0) {
-        console.log('파워업 체크:', { 
-            type: game.powerupType, 
-            endTime: game.powerupEndTime, 
-            now: now, 
-            timeLeft: game.powerupEndTime - now,
-            shouldEnd: now > game.powerupEndTime 
-        });
-    }
-    
     if (game.powerupEndTime && now > game.powerupEndTime) {
-        console.log('파워업 종료:', game.powerupType);
         switch(game.powerupType) {
             case 'shield':
                 game.isInvincible = false;
@@ -429,7 +458,6 @@ function updatePowerups() {
         }
         game.powerupType = '';
         game.powerupEndTime = 0;
-        console.log('무적 상태 해제:', game.isInvincible);
     }
 }
 
@@ -624,3 +652,106 @@ document.addEventListener('keyup', (e) => {
 window.addEventListener('blur', () => {
     Object.keys(keys).forEach(key => keys[key] = false);
 });
+
+// 터치 이벤트 핸들러
+function getTouchPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    return {
+        x: (e.clientX - rect.left) * scaleX,
+        y: (e.clientY - rect.top) * scaleY
+    };
+}
+
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    if (gameState !== 'playing') return;
+    
+    const touchPos = getTouchPos(e.touches[0]);
+    touch.isActive = true;
+    touch.startX = touchPos.x;
+    touch.startY = touchPos.y;
+    touch.targetX = touchPos.x;
+    touch.targetY = touchPos.y;
+});
+
+canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    if (!touch.isActive || gameState !== 'playing') return;
+    
+    const touchPos = getTouchPos(e.touches[0]);
+    touch.currentX = touchPos.x;
+    touch.currentY = touchPos.y;
+    touch.targetX = touchPos.x;
+    touch.targetY = touchPos.y;
+});
+
+canvas.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    touch.isActive = false;
+    player.dx = 0;
+    player.dy = 0;
+});
+
+canvas.addEventListener('touchcancel', (e) => {
+    e.preventDefault();
+    touch.isActive = false;
+    player.dx = 0;
+    player.dy = 0;
+});
+
+// 마우스 이벤트 (데스크톱에서도 터치처럼 사용 가능)
+canvas.addEventListener('mousedown', (e) => {
+    if (gameState !== 'playing') return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    const mousePos = {
+        x: (e.clientX - rect.left) * scaleX,
+        y: (e.clientY - rect.top) * scaleY
+    };
+    
+    touch.isActive = true;
+    touch.targetX = mousePos.x;
+    touch.targetY = mousePos.y;
+});
+
+canvas.addEventListener('mousemove', (e) => {
+    if (!touch.isActive || gameState !== 'playing') return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    const mousePos = {
+        x: (e.clientX - rect.left) * scaleX,
+        y: (e.clientY - rect.top) * scaleY
+    };
+    
+    touch.targetX = mousePos.x;
+    touch.targetY = mousePos.y;
+});
+
+canvas.addEventListener('mouseup', () => {
+    touch.isActive = false;
+    player.dx = 0;
+    player.dy = 0;
+});
+
+canvas.addEventListener('mouseleave', () => {
+    touch.isActive = false;
+    player.dx = 0;
+    player.dy = 0;
+});
+
+// 화면 크기 변경 시 캔버스 리사이즈
+window.addEventListener('resize', () => {
+    resizeCanvas();
+});
+
+// 초기 캔버스 설정
+resizeCanvas();
